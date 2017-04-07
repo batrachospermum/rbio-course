@@ -1,0 +1,126 @@
+---
+title: "homework_2"
+author: "Peter Kusakin"
+date: "April 5, 2017"
+output: html_document
+---
+#Кластеризация
+```{r librares, message=FALSE}
+library(DESeq2)
+library(ggplot2)
+library(pheatmap)
+library(amap)
+library(dbscan)
+```
+
+##Работа с прошлыми данными: *иерархческая кластеризация* и метод *K-means*
+
+Считываю данные целиком (с аутлаером - для иерархичесокй кластеризации) и без аутлаера. Дабы не портить данные шумом (+ _не завышать корреляцию!_), из исходных данных бертся только 8000 самых самых генов. Потом значения экспреccии  логарифмируются:
+```{r making_datasets, cache=TRUE, message=FALSE}
+counts <- read.csv("GSE89225_Illumina_counts.csv", row.names=1)
+conditions <- read.csv("conditions.csv", row.names=1)
+
+dds_4clust <- DESeqDataSetFromMatrix(countData = counts,
+                              colData = conditions,
+                              design = ~ tissue + cells)
+dds_4clust <- head(dds_4clust[(order(rowSums(counts(dds_4clust)), decreasing = T))], n=8000)
+dds_4clust_log <- rlog(dds_4clust)
+
+
+counts_wo_outl <- read.csv("GSE89225_Illumina_counts.csv", row.names=1)
+counts_wo_outl$treg_NBP_patient3 <- NULL
+conditions_wo_outl <- read.csv("conditions.csv", row.names=1)
+conditions_wo_outl <- conditions_wo_outl[-which(rownames(conditions_wo_outl) == "treg_NBP_patient3"),]
+
+dds_4kmeans <- DESeqDataSetFromMatrix(countData = counts_wo_outl,
+                              colData = conditions_wo_outl,
+                              design = ~ tissue + cells)
+dds_4kmeans <- head(dds_4kmeans[(order(rowSums(counts(dds_4kmeans)), decreasing = T))], n=8000)
+dds_4kmeans_log <- rlog(dds_4kmeans)
+df_dds_km <- assay(dds_4kmeans_log)
+```
+
+###Иерархическая кластеризация в пространстве образцов
+Используем, чтобы подтвердить наличие аутлаера(ов?) + соответствие дизайну эксперимента.
+
+Подготовительных этап - считаем корреляции между образцами:
+
+```{r correlation, message=FALSE}
+
+df_dds <- assay(dds_4clust_log)
+correlation <- cor(df_dds)
+unlike_cor <- 1 - correlation
+cors <- dist(unlike_cor)
+```
+
+Собственно *иерархичесая кластеризация* тремя разными методами. Везде прекрасно видно наличие аутлаера:
+
+```{r hclust_clustering, message=FALSE}
+
+plot(hclust(cors, method="average"), main="Кластерная дендрограмма\n(критерий объединения - расстояние между средними)")
+plot(hclust(cors, method="complete"), main="Кластерная дендрограмма\n(критерий объединения - сравнение худшей пары)")
+plot(hclust(cors, method="single"), main="Кластерная дендрограмма\n(критерий объединения - сравнение лучшей пары)")
+
+```
+
+###Кластеризация методом K-means
+
+Используется для описания паттернов экспрессии в образцах и попутно значительно упрощает восприятие рисующихся хитмапов, ведь всё удобно разбито на кластеры.
+
+```{r km_heatmap, message=FALSE}
+kmeans_data <- Kmeans(df_dds_km, 6, 20000, method = "correlation")
+clusters <- kmeans_data$cluster
+
+counts.norm <- assay(dds_4kmeans_log, normalized=TRUE)
+png("heatmap_km.png", width=6, height=20, units="in", res=300)
+
+to_visualise <- counts.norm[, order(conditions_wo_outl[, 2], conditions_wo_outl[, 1])]
+to_visualise <- to_visualise[order(clusters),]
+
+to_visualise <- t(apply(to_visualise, 1, function(r) {
+  (r - min(r)) / (max(r) - min(r))
+}))
+
+clusters_inf <- data.frame(cluster=as.factor(clusters), row.names=names(clusters))
+
+pheatmap(to_visualise, 
+         show_rownames = F, cluster_rows = F,
+         cluster_cols=F,
+         annotation_col = conditions,
+         annotation_row = clusters_inf)
+
+dev.off()
+
+pheatmap(to_visualise, 
+         show_rownames = F, cluster_rows = F,
+         cluster_cols=F,
+         annotation_col = conditions,
+         annotation_row = clusters_inf)
+```
+
+##Density-based алгоритм на примере данных Single-Cell RNA-seq (tSNE-прроекция всех клеток)
+
+Данные до нахождения кластеров:
+```{r tsne_visual, message=FALSE}
+tsne_set <- read.csv("projection.csv", row.names = 1)
+
+ggplot(tsne_set, aes(TSNE.1, TSNE.2)) + 
+         geom_point() +
+         theme_bw()
+```
+
+...и после (0 соотсветствует точкам, не отнесённым ни к какому кластеру):
+```{r tsne_dbscan_clustering, message=FALSE}
+
+dbscanning <- dbscan(tsne_set, eps = 3, minPts = 2)
+
+tsne_set$cluster <- as.factor(dbscanning$cluster)
+
+ggplot(tsne_set, aes(TSNE.1, TSNE.2, col=cluster)) +  
+  geom_point() +
+  theme_bw()
+
+```
+
+
+Методом тыка и научной подгонометрии были определены параметры запуска dbscan: радиус окружности, где будут искаться соседи (eps) = `r dbscanning$eps`; минимальное количество точек в ней (minPts) = `r dbscanning$minPts`. 
