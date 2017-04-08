@@ -1,0 +1,146 @@
+---
+title: "cw1"
+author: "Peter Kusakin"
+date: "April 8, 2017"
+output: html_document
+---
+```{r, message=FALSE}
+setwd("/home/gunter/RData/spring_semestre/BioR/contol_work/")
+library(DESeq2)
+library(amap)
+library(pheatmap)
+library(ggplot2)
+library(VennDiagram)
+```
+
+#Visual quality control and self-consistance
+```{r reading_data}
+counts <- read.csv("GSE89633_counts.tsv", sep = "\t", row.names = 1)
+conditions <- read.csv("GSE89633_conditions.tsv", sep = "\t", row.names = 1)
+
+dds <- DESeqDataSetFromMatrix(countData = counts,
+                              colData = conditions,
+                              design = ~ conditions + cells)
+
+vst_dds <- vst(dds)
+
+plotPCA(vst_dds, intgroup=c("conditions", "cells")) + theme_bw()
+
+```
+
+##Готовимся к K-Means
+```{r km_preparation, message=FALSE, cache=TRUE}
+dds <- head(dds[(order(rowSums(counts(dds)), decreasing = T))], n=8000)
+
+dds_log <- rlog(dds)
+df_dds_log <- assay(dds_log)
+```
+
+```{r kmeans, message=FALSE}
+kmeans_data <- Kmeans(df_dds_log, 10, 20000, method = "correlation")
+clusters <- kmeans_data$cluster
+
+counts.norm <- assay(dds_log, normalized=TRUE)
+png("heatmap_cw.png", width=6, height=20, units="in", res=300)
+
+to_visualise <- counts.norm[, order(conditions[, 2], conditions[, 1])]
+to_visualise <- to_visualise[order(clusters),]
+
+to_visualise <- t(apply(to_visualise, 1, function(r) {
+  (r - min(r)) / (max(r) - min(r))
+}))
+
+clusters_inf <- data.frame(cluster=as.factor(clusters), row.names=names(clusters))
+
+pheatmap(to_visualise, 
+         show_rownames = F, cluster_rows = F,
+         cluster_cols=F,
+         annotation_col = conditions,
+         annotation_row = clusters_inf)
+
+dev.off()
+```
+Можем, если видим странную дичь. Тут всё нормально, как мне кажется.
+
+#Differential expression
+
+```{r mk_subsets, message=FALSE}
+conditions_fap <- subset(conditions, cells=="cell type: FAP")
+counts_fap <- counts[, rownames(conditions_fap)]
+
+conditions_fb <- subset(conditions, cells=="cell type: FB")
+counts_fb <- counts[, rownames(conditions_fb)]
+
+conditions_smp <- subset(conditions, cells=="cell type: SMP")
+counts_smp <- counts[, rownames(conditions_smp)]
+
+```
+
+```{r moreDDS!!, message=F, cache=T}
+dds_fap <- DESeqDataSetFromMatrix(countData = counts_fap,
+                              colData = conditions_fap,
+                              design = ~ conditions)
+
+dds_fb <- DESeqDataSetFromMatrix(countData = counts_fb,
+                              colData = conditions_fb,
+                              design = ~ conditions)
+
+dds_smp <- DESeqDataSetFromMatrix(countData = counts_smp,
+                              colData = conditions_smp,
+                              design = ~ conditions)
+
+dds_fap <- DESeq(dds_fap)
+dds_fb <- DESeq(dds_fb)
+dds_smp <- DESeq(dds_smp)
+```
+
+```{r}
+res_fap <- results(dds_fap)
+res_fap <- na.omit(res_fap)
+
+
+res_fb <- results(dds_fb)
+res_fb <- na.omit(res_fb)
+
+res_smp <- results(dds_smp)
+res_smp <- na.omit(res_smp)
+```
+
+
+```{r}
+gdata <- data.frame(
+  x=res_fap$log2FoldChange,
+  y=-log10(res_fap$padj),
+  treshold=factor(ifelse(res_fap$padj > 0.01, "Not significant", "Significant")),
+  comparison=rep("FAP WT vs FAP DKO", nrow(res_fap))
+)
+
+gdata2 <- data.frame(
+  x=res_fb$log2FoldChange,
+  y=-log10(res_fb$padj),
+  treshold=factor(ifelse(res_fb$padj > 0.01, "Not significant", "Significant")),
+  comparison=rep("FB WT vs FB DKO", nrow(res_fb))
+)
+ 
+gdata3 <- data.frame(
+  x=res_smp$log2FoldChange,
+  y=-log10(res_smp$padj),
+  treshold=factor(ifelse(res_smp$padj > 0.01, "Not significant", "Significant")),
+  comparison=rep("SMP WT VS SMP DKO", nrow(res_smp))
+)
+
+gdata_combined <- rbind(gdata, gdata2, gdata3)
+ggplot(data=gdata_combined, aes(x=x, y=y)) +
+  geom_point(size=1, aes(col=treshold)) + geom_hline(yintercept = -log10(0.01), linetype=3) +
+  scale_color_manual(values=c("Significant"="red", "Not significant"="black")) + theme_bw() +
+  xlab("Log fold change") +
+  ylab("Adjusted p.value") +
+  facet_grid(. ~ comparison)
+```
+
+
+##Диаграмма Венна
+```{r venn, message=F}
+#draw.triple.venn(nrow(res_fap[res_fap$padj<0.01,]), nrow(res_fb[res_fb$padj<0.01,]), nrow(res_smp[res_smp$padj<0.01,]), length(intersect(rownames(res_fap[res_fap$padj<0.01,]), rownames(res_fb[res_fb$padj<0.01,]), rownames(res_smp[res_fap$padj<0.01,]))), category = c("FAP WT vs FAP DKO", "FB WT vs FB DKO", "SMP WT vs SMP DKO"), scaled = T, col = c("Magenta", "Green", "Red"), fill = c("Magenta", "Green", "Red"))
+```
+
