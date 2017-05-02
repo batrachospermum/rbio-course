@@ -1,0 +1,103 @@
+---
+title: "SQL Homework"
+author: "Пётр Кусакин"
+date: "May 2, 2017"
+output: html_document
+---
+
+```{r setup}
+library(RSQLite)
+library(DBI)
+```
+# First.fm
+## Загружаем таблицу
+```{r}
+hw_db <- dbConnect(RSQLite::SQLite(), "data.sqlite")
+dbListTables(hw_db)
+hw_db <- dbConnect(RSQLite::SQLite(), "data.sqlite")
+```
+
+## 1. Перечисление пользователей в алфавитном порядке username
+```{r}
+df1 <- dbGetQuery(hw_db, "SELECT * FROM Users ORDER BY username;")
+head(df1, n = 15)
+```
+
+## 2. 5 пользователей, которые зарегистрировались последними
+
+```{r}
+df2 <- dbGetQuery(hw_db, "SELECT * FROM Users ORDER BY registered DESC;")
+head(df2, n = 5)
+```
+
+## 3. Топ 5 пользователей по числу прослушиваний
+
+```{r}
+df3 <- dbGetQuery(hw_db, "SELECT * FROM Users JOIN Listened WHERE Users.id = Listened.user_id GROUP BY username ORDER BY count(Users.id) DESC;")
+head(df3, n = 5)
+```
+
+## 4. Информация об исполнителях и количестве их альбомов
+
+```{r}
+df4 <- dbGetQuery(hw_db, "SELECT Artists.name as Исполнитель, count(Albums.name) as Количество_альбомов FROM Artists JOIN Albums WHERE Artists.id = Albums.artist_id GROUP BY Artists.name;")
+head(df4, n = 15)
+```
+
+## 5. Информация об исполнителях и количестве их песен
+
+```{r}
+df5 <- dbGetQuery(hw_db, "SELECT Artists.name as Исполнитель, count(Songs.id) as Число_песен FROM Artists JOIN Albums JOIN Songs WHERE Artists.id = Albums.artist_id AND Albums.id = Songs.Album_id GROUP BY Artists.id;")
+head(df5, n = 15)
+```
+
+## 6. Самый длинный альбом по числу песен
+```{r}
+df6 <- dbGetQuery(hw_db, "SELECT Artists.name as Исполнитель, Albums.name as Название_альбома, count(Songs.id) as Число_песен FROM Artists JOIN Albums JOIN Songs WHERE Artists.id = Albums.artist_id AND Albums.id = Songs.Album_id GROUP BY Название_альбома ORDER BY Число_песен DESC;")
+head(df6, n = 1)
+```
+
+## 7. Самый длинный альбом по суммарной продолжительности
+
+```{r}
+df7 <- dbGetQuery(hw_db, "SELECT Artists.name as Исполнитель, Albums.name as Название_альбома, total(Songs.duration) as Продолжительность_альбома FROM Artists JOIN Albums JOIN Songs WHERE Artists.id = Albums.artist_id AND Albums.id = Songs.Album_id GROUP BY Название_альбома ORDER BY Продолжительность_альбома DESC;")
+head(df7, n = 1)
+```
+
+## 8. Альбом самой большой средней продолжительностью трека
+
+```{r}
+df8 <- dbGetQuery(hw_db, "SELECT Artists.name as Исполнитель, Albums.name as Название_альбома, total(Songs.duration)/count(Songs.id) as Средняя_продолжительность_трека FROM Artists JOIN Albums JOIN Songs WHERE Artists.id = Albums.artist_id AND Albums.id = Songs.Album_id GROUP BY Название_альбома ORDER BY Средняя_продолжительность_трека DESC;")
+head(df8, n = 1)
+```
+
+## 9. Топ 5 самых прослушиваемых треков
+
+```{r}
+df9 <- dbGetQuery(hw_db, "SELECT Artists.name as Исполнитель, Albums.name as Название_альбома, Songs.name as Название_песни, count(Listened.song_id) as Количество_прослушиваний FROM Artists JOIN Albums JOIN Songs JOIN Listened WHERE Artists.id = Albums.artist_id AND Albums.id = Songs.Album_id AND Songs.id = Listened.song_id GROUP BY Songs.id ORDER BY Количество_прослушиваний DESC;")
+head(df9, n = 5)
+```
+
+## 10. Год, в котором песни, выпущенные в этом году, прослушали наибольшее количество раз
+
+```{r}
+df10 <- dbGetQuery(hw_db, "SELECT Albums.release_year as Год, count(Listened.song_id) as Количество_прослушиваний FROM Albums JOIN Songs JOIN Listened WHERE ALbums.id = Songs.album_id AND Songs.id = Listened.song_id GROUP BY Год ORDER BY Количество_прослушиваний DESC;")
+head(df10, n = 1)
+```
+
+## 11. Топ 20 последних прослушанных треков пользователем с id 47
+ 
+```{r}
+df11 <- dbGetQuery(hw_db, "SELECT Artists.name as Исполнитель, Albums.name as Название_альбома, Songs.name as Название_песни, Listened.start_time as Время_прослушивания FROM Artists JOIN Albums JOIN Songs JOIN Listened WHERE Artists.id = Albums.artist_id AND Albums.id = Songs.Album_id AND Songs.id = Listened.song_id AND Listened.user_id = 47 GROUP BY Songs.id ORDER BY Время_прослушивания DESC;")
+head(df11, n = 20)
+```
+
+##  12. **JOINs for the JOIN Throne!!!** Количество прослушиваний для каждой песни, которую прослушал каждый пользователь 
+
+```{r}
+df12 <- dbGetQuery(hw_db, "SELECT Users.username as Пользватель, Artists.name as Исполнитель, Albums.name as Название_альбома, Songs.name as Название_песни, count(Listened.song_id) as Количество_прослушиваний FROM Artists JOIN Albums JOIN Songs JOIN Listened JOIN USERS WHERE Artists.id = Albums.artist_id AND Albums.id = Songs.Album_id AND Songs.id = Listened.song_id AND Listened.user_id = Users.id GROUP BY Users.id, Songs.id;")
+head(df12, n = 15)
+
+dbDisconnect(hw_db)
+```
+
