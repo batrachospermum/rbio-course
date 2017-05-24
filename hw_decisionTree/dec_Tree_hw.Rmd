@@ -1,0 +1,220 @@
+---
+title: "Dec_tree_hw"
+author: "Пётр Кусакин"
+date: "May 13, 2017"
+output: html_document
+---
+
+```{r setup, message=F}
+library(randomForest)
+library(ggplot2)
+```
+
+
+## Читаем данные и готовим их
+```{r data}
+ages <- read.table("ages.tsv", sep="\t", header=1)
+head(ages)
+methylation <- read.table("methylation.tsv", sep="\t", header=1, row.names = 1, na.strings = "NA")
+print(methylation[1:5, 1:5])
+```
+
+
+
+- Для каждого сайта метилирования, считаем корреляцию между долей метилирования этого сайта в доноре и возрасте донора.
+- Оставляем только 10 самых скоррелированных сайтов.
+
+```{r}
+for_corr <- data.frame(t(methylation[,4:ncol(methylation)]))
+new <- cbind(for_corr, Age=ages$Age)
+new[is.na(new)] <- 0
+```
+
+```{r}
+corAge <- sapply(new[-ncol(new)], function(x) cor(x, new$Age))
+best10 <- head(sort(abs(corAge), decreasing = T), 10)
+
+new <- new[, names(best10)]
+new <- cbind(new, Age=ages$Age)
+
+set.seed(77)
+```
+
+## Готовим тренирующую и валидирующую выборки
+
+```{r samples}
+training <- sample(1:50, 40)
+validation <- (1:50)[-training]
+
+train <- new[training, ]
+valid <- new[validation, ]
+```
+
+## Функция-обёртка
+```{r}
+wrapper <- function(train.data, train.response,
+                    test.data, test.response, 
+                    runs.number=50, ...) {
+  runs <- c(1:runs.number)
+  rf <- lapply(runs, function(x) randomForest(train.response ~ ., data = train.data, ...))
+  
+  rmse_training <- lapply(rf, function(x) sqrt((1/40)*(sum(predict(x, train.data) - train.response)) ** 2)) 
+  rmse_val <- lapply(rf, function(x) sqrt((1/10)*(sum(predict(x, test.data) - test.response)) ** 2))
+  rmse_training_asvector <- rapply(rmse_training, c)
+  rmse_val_asvector <- rapply(rmse_val, c)
+  
+  mean_trainRMSE <- mean(rmse_training_asvector)
+  mean_valRMSE <- mean(rmse_val_asvector)
+  
+  return(c(mean_trainRMSE, mean_valRMSE))
+  }
+```
+
+# Функция работает!
+
+С пятью сотнями деревьев
+```{r, cache=T}
+errors.defaults <- wrapper(train[-11], train$Age, valid[-11], valid$Age, 50)
+print(errors.defaults)
+```
+
+И с одним грустным деревом
+```{r, cache=T}
+errors.ntree1 <- wrapper(train[-11], train$Age, valid[-11], valid$Age, 50, ntree=1)
+print(errors.ntree1)
+```
+
+
+# Задача домашней работы
+
+## Оптимизируем же параметры!
+
+Для этого будет использоваться тренирующая выборка.
+
+### NTREE
+
+То есть тестируем, какое доличество деревьев лучше для запуска.
+```{r, cache=T}
+ntree_test <- seq(1, 1000, 5)
+ntrees <- sapply(ntree_test, function(x) wrapper(train[-11], train$Age, valid[-11], valid$Age, runs.number=100, ntree=x))
+```
+
+```{r}
+ntree_plots <- rbind(data.frame(NTREE=ntree_test, SSE=ntrees[1,], dataset="Train"),
+    data.frame(NTREE=ntree_test, SSE=ntrees[2,], dataset="Validation"))
+
+ggplot(ntree_plots, aes(x=NTREE, y=SSE, color=dataset)) +
+  theme_bw() + geom_line()
+```
+
+Будем использовать 500 деревьев!
+
+### REPLACE & SAMPSIZE
+
+```{r, cache=T}
+sampsize_test <- 1:40
+samplesize_replace_true <- sapply(sampsize_test, function(x) wrapper(train[-11], train$Age, valid[-11], valid$Age, runs.number=100, replace=T, sampsize=x, ntree=500, nodesize=1, mtry=10))
+samplesize_replace_false <- sapply(sampsize_test, function(x) wrapper(train[-11], train$Age, valid[-11], valid$Age, runs.numbe =100, replace=F, sampsize=x, ntree=500, nodesize=1, mtry=10))
+```
+
+
+```{r}
+rtrue_plot <- rbind(data.frame(SAMPSIZE=sampsize_test, SSE=samplesize_replace_true[1,], dataset="Train"),
+    data.frame(SAMPSIZE=sampsize_test, SSE=samplesize_replace_true[2,], dataset="Validation"))
+rfalse_plot <- rbind(data.frame(SAMPSIZE=sampsize_test, SSE=samplesize_replace_false[1,], dataset="Train"),
+    data.frame(SAMPSIZE=sampsize_test, SSE=samplesize_replace_false[2,], dataset="Validation"))
+
+ggplot(rtrue_plot, aes(x=SAMPSIZE, y=SSE, color=dataset)) +
+  theme_bw() + geom_line() + ggtitle("replace=True")
+ggplot(rfalse_plot, aes(x=SAMPSIZE, y=SSE, color=dataset)) +
+  theme_bw() + geom_line() + ggtitle("replase=False")
+```
+
+Как видно, булет использоваться TRUE для параметра replace, так как в случае FALSE наблюдается переобучение. Для sampsize было выбрано значение 40.
+
+### NODESIZE
+```{r, cache=T}
+nodesize_test <- 1:40
+nodesizes <- sapply(nodesize_test, function(x) wrapper(train[-11], train$Age, valid[-11], valid$Age, runs.number=100, replace=T, sampsize=40, ntree=500, nodesize=x, mtry=10))
+```
+
+```{r}
+nodesize_plot <- rbind(data.frame(NODESIZE=nodesize_test, SSE=nodesizes[1,], dataset="Train"),
+    data.frame(NODESIZE=nodesize_test, SSE=nodesizes[2,], dataset="Validation"))
+
+ggplot(nodesize_plot, aes(x=NODESIZE, y=SSE, color=dataset)) +
+  theme_bw() + geom_line()
+```
+
+Переобучения нет, можно зафиксировать значение NODESIZE равным 1.
+
+### MTRY
+
+```{r, cache=T}
+mtry_test <- 1:10
+mtrys <- sapply(mtry_test, function(x) wrapper(train[-11], train$Age, valid[-11], valid$Age, runs.number=100, replace=T, sampsize=40, ntree=500, nodesize=1, mtry=x))
+```
+
+```{r}
+mtry_plot <- rbind(data.frame(MTRY=mtry_test, SSE=mtrys[1,], dataset="Train"),
+    data.frame(MTRY=mtry_test, SSE=mtrys[2,], dataset="Validation"))
+
+ggplot(mtry_plot, aes(x=MTRY, y=SSE, color=dataset)) +
+  theme_bw() + geom_line()
+```
+
+Переобучения нет, было выбрано значение 8.
+
+### CROSS VALIDATION
+
+```{r}
+# our data, matrix 50 donors by 10 methylation sites
+dim(new)
+
+# age of all donors
+head(new$Age)
+
+set.seed(77)
+
+# splitting our dataset into 5 equal parts
+cross.validation <- matrix(sample(1:50, 50), nrow=5, ncol=10)
+cross.validation
+
+cross.results <- apply(cross.validation, 1, function(test.sample){
+  # using each part as testing dataset
+  # using rest of the dataset as training dataset
+  train.sample <- (1:50)[-test.sample]
+  train.data <- new[train.sample, ]
+  train.response <- new$Age[train.sample]
+  test.data <- new[test.sample, ]
+  test.response <- new$Age[test.sample]
+  
+  # calculating RMSE for every part and default random forest
+  return(wrapper(train.data, train.response, test.data, test.response, 100))
+})
+
+print(cross.results)
+
+print(rowMeans(cross.results))
+```
+
+Кросс-валидация с подобранными ранее параметрами:
+
+```{r, cache=T}
+cross.results_mine <- apply(cross.validation, 1, function(test.sample){
+  # using each part as testing dataset
+  # using rest of the dataset as training dataset
+  train.sample <- (1:50)[-test.sample]
+  train.data <- new[train.sample, ]
+  train.response <- new$Age[train.sample]
+  test.data <- new[test.sample, ]
+  test.response <- new$Age[test.sample]
+  
+  # calculating RMSE for every part and default random forest
+  return(wrapper(train.data, train.response, test.data, test.response, runs.number=100, replace=T, sampsize=40, ntree=500, nodesize=1, mtry=8))
+})
+print(cross.results_mine)
+print(rowMeans(cross.results_mine))
+```
+
+В результате получилось, что подобранные параметры выдают ошибку чуть большую для тренирующей выборки, но намного меньшую для выборки валидирующей.
