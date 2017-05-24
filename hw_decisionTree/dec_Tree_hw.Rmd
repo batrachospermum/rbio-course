@@ -58,8 +58,8 @@ wrapper <- function(train.data, train.response,
   runs <- c(1:runs.number)
   rf <- lapply(runs, function(x) randomForest(train.response ~ ., data = train.data, ...))
   
-  rmse_training <- lapply(rf, function(x) sqrt((1/40)*(sum(predict(x, train.data) - train.response)) ** 2)) 
-  rmse_val <- lapply(rf, function(x) sqrt((1/10)*(sum(predict(x, test.data) - test.response)) ** 2))
+  rmse_training <- lapply(rf, function(x) sqrt((1/(nrow(train.data))) * sum((predict(x, train.data) - train.response) ** 2)))
+  rmse_val <- lapply(rf, function(x) sqrt((1/(nrow(test.data))) * sum((predict(x, test.data) - test.response) ** 2)))
   rmse_training_asvector <- rapply(rmse_training, c)
   rmse_val_asvector <- rapply(rmse_val, c)
   
@@ -67,7 +67,7 @@ wrapper <- function(train.data, train.response,
   mean_valRMSE <- mean(rmse_val_asvector)
   
   return(c(mean_trainRMSE, mean_valRMSE))
-  }
+}
 ```
 
 # Функция работает!
@@ -163,7 +163,7 @@ ggplot(mtry_plot, aes(x=MTRY, y=SSE, color=dataset)) +
   theme_bw() + geom_line()
 ```
 
-Переобучения нет, было выбрано значение 8.
+Наблюдается переобучение, было выбрано значение 8.
 
 ### CROSS VALIDATION
 
@@ -217,4 +217,4 @@ print(cross.results_mine)
 print(rowMeans(cross.results_mine))
 ```
 
-В результате получилось, что подобранные параметры выдают ошибку чуть большую для тренирующей выборки, но намного меньшую для выборки валидирующей.
+В результате получилось, что подобранные параметры выдают ошибку меньшу и для для тренирующей выборки и для выборки валидирующей.
