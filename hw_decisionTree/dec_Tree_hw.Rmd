@@ -174,8 +174,6 @@ dim(new[-11])
 # age of all donors
 head(new$Age)
 
-set.seed(1)
-
 # splitting our dataset into 5 equal parts
 cross.validation <- matrix(sample(1:50, 50), nrow=5, ncol=10)
 cross.validation
