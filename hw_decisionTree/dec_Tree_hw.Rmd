@@ -163,18 +163,18 @@ ggplot(mtry_plot, aes(x=MTRY, y=SSE, color=dataset)) +
   theme_bw() + geom_line()
 ```
 
-Наблюдается переобучение, было выбрано значение 8.
+Наблюдается переобучение, было выбрано значение 1.
 
 ### CROSS VALIDATION
 
 ```{r}
 # our data, matrix 50 donors by 10 methylation sites
-dim(new)
+dim(new[-11])
 
 # age of all donors
 head(new$Age)
 
-set.seed(77)
+set.seed(1)
 
 # splitting our dataset into 5 equal parts
 cross.validation <- matrix(sample(1:50, 50), nrow=5, ncol=10)
@@ -184,9 +184,9 @@ cross.results <- apply(cross.validation, 1, function(test.sample){
   # using each part as testing dataset
   # using rest of the dataset as training dataset
   train.sample <- (1:50)[-test.sample]
-  train.data <- new[train.sample, ]
+  train.data <- new[train.sample, -11]
   train.response <- new$Age[train.sample]
-  test.data <- new[test.sample, ]
+  test.data <- new[test.sample, -11]
   test.response <- new$Age[test.sample]
   
   # calculating RMSE for every part and default random forest
@@ -205,16 +205,16 @@ cross.results_mine <- apply(cross.validation, 1, function(test.sample){
   # using each part as testing dataset
   # using rest of the dataset as training dataset
   train.sample <- (1:50)[-test.sample]
-  train.data <- new[train.sample, ]
+  train.data <- new[train.sample, -11]
   train.response <- new$Age[train.sample]
-  test.data <- new[test.sample, ]
+  test.data <- new[test.sample, -11]
   test.response <- new$Age[test.sample]
   
   # calculating RMSE for every part and default random forest
-  return(wrapper(train.data, train.response, test.data, test.response, runs.number=100, replace=T, sampsize=40, ntree=500, nodesize=1, mtry=8))
+  return(wrapper(train.data, train.response, test.data, test.response, runs.number=100, replace=T, sampsize=40, ntree=500, nodesize=1, mtry=1))
 })
 print(cross.results_mine)
 print(rowMeans(cross.results_mine))
 ```
 
-В результате получилось, что подобранные параметры выдают ошибку меньшу и для для тренирующей выборки и для выборки валидирующей.
+В результате получилось, что подобранные параметры выдают ошибку меньше и для тренирующей выборки и для выборки валидирующей.
